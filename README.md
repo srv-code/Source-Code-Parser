@@ -1,6 +1,6 @@
 # Source Code Parser
 ## Synopsis
-A utility program parse a given source file and strip off the source and comment lines from the file. 
+A utility program parse a given source file and strip off the source and comment lines from the file.  
 Standard C-style comments are considered i.e. a single line comment starts with a double slash ('//') string sequence running till the end of line mark and a multi-line comment starts with a slash and asterix ('/*') string sequence and ends with a asterix and slash ('*/') string sequence.
 
 ## Features
