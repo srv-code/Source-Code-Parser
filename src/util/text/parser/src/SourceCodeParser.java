@@ -1,8 +1,14 @@
-package text.parser.src;
+package util.text.parser.src;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.PrintStream;
+import java.io.PushbackReader;
+import java.io.IOException;
+import java.util.List;
+import java.util.ArrayList;
 
-import java.io.*;
-import java.util.*;
 
 /**
  * Does the basic parsing of the source code. <br>
@@ -10,110 +16,130 @@ import java.util.*;
  *	from the source code.
  * */
 public class SourceCodeParser {
-	private StringBuilder tmpCodeLine       = new StringBuilder();
-	private StringBuilder tmpCommentLine    = new StringBuilder();
-	private List<String> codeLines          = new ArrayList<>();
-	private List<String> commentLines       = new ArrayList<>();
-	private File file;
+    public static final float APP_VERSION = 1.10f;
+    
+	private final StringBuilder tmpCodeLine     = new StringBuilder();
+	private final StringBuilder tmpCommentLine  = new StringBuilder();
+	private final List<String>  codeLines       = new ArrayList<>();
+	private final List<String>  commentLines    = new ArrayList<>();
+    private final List<File>    fileList        = new ArrayList<>();
 
-	/* DEBUG */
-	private static boolean DEBUG = false;
-	private static PrintStream debugOut;
+	private final boolean debugEnabled;
+	private final PrintStream sourceStream;
+	private final PrintStream commentStream;
+	private final PrintStream debugStream;
+    public  final static String defaultDebugFilePath = "debug.txt";
 
-	/** Writes the debug log into a file named 'debug.txt' */
-	private static void initDebugModule() throws IOException {
-		DEBUG = true;
-		debugOut = new PrintStream("debug.txt"); // System.out;
+    
+    public SourceCodeParser(final boolean      debugEnabled,
+                            final String       sourceFilePath,
+                            final String       commentFilePath,
+                            final String       debugFilePath,
+                            final List<String> filePathList) throws IOException {
+        sourceStream  = sourceFilePath  == null ? System.out : new PrintStream(sourceFilePath);
+        commentStream = commentFilePath == null ? System.out : new PrintStream(commentFilePath);
+        
+        this.debugEnabled = debugEnabled;
+        debugStream = debugEnabled ? new PrintStream(debugFilePath == null ? defaultDebugFilePath : debugFilePath) : null;
+        
+        for(String path: filePathList) {
+            File file = new File(path);
+            if(!file.exists())
+                throw new FileNotFoundException(path);
+            fileList.add(file);
+        }
 	}
-
-	private static void d(final String fmtStr, Object ... args) {
-		if(DEBUG)
-			debugOut.printf("  // " + fmtStr + "\n", args);
+    
+    private void printDebug(final String formatString, Object... args) {
+		if(debugEnabled)
+			debugStream.printf(formatString + "\n", args);
 	}
-	/* DEBUG */
-
-	SourceCodeParser(final String filename) {
-		file = new File(filename);
-	}
+    
+    public void process() throws IOException {
+        for(File file: fileList) {
+            parse(file);
+            printLines(file);
+        }
+    }
 
 	/**
 	 * Considerations: <br>
 	 1. If a string or character sequence starts ignore all other sequence. <br>
 	 2. If any of the comment type is started then continue with it (ignoring all other
-	 sequences) untill the ending sequence is found. </br>
+	 sequences) until the ending sequence is found. </br>
 	 <br><br>
 	 * All states are maintained by a flag. All of which are mutex at any time,
 	 noncompliance of which will throw a IllegalStateException
 	 denoting a non-mutex condition. <br>
 	 * No checks for syntactical validity, that should be done by the much smarter compiler
 	 and is beyond the context of this program.
-	 */
-	private void parse() throws IOException, IllegalStateException {
+	 * */
+	private void parse(final File file) throws IOException, IllegalStateException {
 		try (PushbackReader reader = new PushbackReader(new FileReader(file))) {
-			boolean	// mutex flags
-					codeLineContinues = true,
-					charSequenceStarted = false,
-					stringSequenceStarted = false,
+			boolean	/* mutex flags */
+					codeLineContinues        = true,
+					charSequenceStarted      = false,
+					stringSequenceStarted    = false,
 					singleLineCommentStarted = false,
-					multiLineCommentStarted = false,
-					// other flags
-					escaping = false;
+					multiLineCommentStarted  = false,
+					/* other flags */
+					escaping                 = false;
 			int readChar;
 
 			while ((readChar = reader.read()) != -1) {
-				checkMutexState(    charSequenceStarted, stringSequenceStarted,
-									singleLineCommentStarted, multiLineCommentStarted, codeLineContinues);
+				checkMutexState(charSequenceStarted, stringSequenceStarted,
+								singleLineCommentStarted, multiLineCommentStarted, codeLineContinues);
 
-				d("-- readChar=%c (%<d), escaping=%b --", readChar, escaping);
+				printDebug("-- readChar=%c (%<d), escaping=%b --", readChar, escaping);
 				if (charSequenceStarted) {
-					// ignore all chars for comment checking
+					/* ignore all chars for comment checking */
 					addCharToBuffer(readChar, tmpCodeLine, codeLines, false);
 
-					// search for char ending sequence
+					/* search for char ending sequence */
 					if (readChar == '\'' && !escaping) {
 						codeLineContinues = true;
 						charSequenceStarted = false;
-						d("  char sequence ended");
-					} // else - already added to buffer
-					else d("  char sequence continues");
+						printDebug("  char sequence ended");
+					} /* else - already added to buffer */
+					else printDebug("  char sequence continues");
 				} else if (stringSequenceStarted) {
-					// ignore all chars for comment checking
+					/* ignore all chars for comment checking */
 					addCharToBuffer(readChar, tmpCodeLine, codeLines, false);
 
-					// search for string ending sequence
+					/* search for string ending sequence */
 					if (readChar == '"' && !escaping) {
 						codeLineContinues = true;
 						stringSequenceStarted = false;
-						d("  string sequence ended");
-					} // else - already added to buffer
-					else d("  string sequence continues");
+						printDebug("  string sequence ended");
+					} /* else - already added to buffer */
+					else printDebug("  string sequence continues");
 				} else if (singleLineCommentStarted) {
-					// put all the chars to 'comment buffer'
+					/* put all the chars to 'comment buffer' */
 					addCharToBuffer(readChar, tmpCommentLine, commentLines, readChar == '\n');
 
-					// search for single line comment ending sequence
+					/* search for single line comment ending sequence */
 					if (readChar == '\n') {
 						codeLineContinues = true;
 						singleLineCommentStarted = false;
-						d("  single line comment ended");
+						printDebug("  single line comment ended");
 						addCharToBuffer('\n', tmpCommentLine, commentLines, true);
-					} // else - already added to buffer
-					else d("  single line comment continues");
+					} /* else - already added to buffer */
+					else printDebug("  single line comment continues");
 				} else if (multiLineCommentStarted) {
-					// search for multi line comment ending sequence
+					/* search for multi line comment ending sequence */
 					if (readChar == '*') {
 						if ((readChar = reader.read()) == '/') {
 							codeLineContinues = true;
 							multiLineCommentStarted = false;
-							d("  single line comment ended");
+							printDebug("  single line comment ended");
 							addCharToBuffer('\n', tmpCommentLine, commentLines, true);
 						} else {
 							addCharToBuffer('*', tmpCommentLine, commentLines, false);
 							reader.unread(readChar);
-							d("  multi line comment continues");
+							printDebug("  multi line comment continues");
 						}
 					} else {
-						// put all the chars to 'comment buffer'
+						/* put all the chars to 'comment buffer' */
 						addCharToBuffer(readChar, tmpCommentLine, commentLines, readChar == '\n');
 					}
 				} else if (codeLineContinues) {
@@ -130,37 +156,37 @@ public class SourceCodeParser {
 							charSequenceStarted = true;
 							codeLineContinues = false;
 							addCharToBuffer('\'', tmpCodeLine, codeLines, false);
-							d("  char sequence started");
+							printDebug("  char sequence started");
 							break;
 
 						case '"':
 							stringSequenceStarted = true;
 							codeLineContinues = false;
 							addCharToBuffer('"', tmpCodeLine, codeLines, false);
-							d("  string sequence started");
+							printDebug("  string sequence started");
 							break;
 
 						case '/':
-							d("  suspecting a comment line");
+							printDebug("  suspecting a comment line");
 							if ((readChar = reader.read()) == '/') {
 								singleLineCommentStarted = true;
 								codeLineContinues = false;
 								addCharToBuffer('\n', tmpCodeLine, codeLines, true);
-								d("  single line comment started");
+								printDebug("  single line comment started");
 							} else if (readChar == '*') {
 								multiLineCommentStarted = true;
 								codeLineContinues = false;
-								d("  multi line comment started");
-							} else { // push back and continue normally
+								printDebug("  multi line comment started");
+							} else { /* push back and continue normally */
 								addCharToBuffer('/', tmpCodeLine, codeLines, false);
 								reader.unread(readChar);
-								d("    wrong suspect");
+								printDebug("    wrong suspect");
 							}
 							break;
 
 						default:
 							addCharToBuffer(readChar, tmpCodeLine, codeLines, readChar == '\n');
-							d("  code line continues");
+							printDebug("  code line continues");
 					}
 				}
 
@@ -175,7 +201,7 @@ public class SourceCodeParser {
 		}
 	}
 
-	private void checkMutexState(boolean ... flags) throws IllegalStateException {
+	private void checkMutexState(boolean... flags) throws IllegalStateException {
 		boolean alreadySet = false;
 		for(boolean flagSet : flags) {
 			if(flagSet)
@@ -188,45 +214,32 @@ public class SourceCodeParser {
 			throw new IllegalStateException("Internal error: All flags are disabled");
 	}
 
-	private void addCharToBuffer(   final int ch,
-	                                final StringBuilder tmpLine,
-	                                final List<String> lines,
-	                                final boolean flush) {
+	private void addCharToBuffer(final int ch,
+	                             final StringBuilder tmpLine,
+	                             final List<String> lines,
+	                             final boolean flush) {
 		if(flush) {
 			if(tmpLine.toString().trim().length()>0)
 				lines.add(tmpLine.toString());
-			d("  tmpLine=<%s>, flushing...", tmpLine.toString());
-			tmpLine.setLength(0); // deletes all contents
+			printDebug("  tmpLine=<%s>, flushing...", tmpLine.toString());
+			tmpLine.setLength(0); /* deletes all contents */
 		} else {
-			if(ch!='\r') // shows unnecessary new lines in some text editors
+			if(ch!='\r') /* shows unnecessary new lines in some text editors */
 				tmpLine.append((char)ch);
-			d("  tmpLine=<%s>", tmpLine.toString());
+			printDebug("  tmpLine=<%s>", tmpLine.toString());
 		}
 	}
 
-	private static void display(final SourceCodeParser parser) {
-		System.out.printf("[Code lines (%d)]]\n", parser.codeLines.size());
-		for(String line : parser.codeLines)
-			System.out.println(line);
-
-		System.out.printf("\n\n[Comment lines (%d)]\n", parser.commentLines.size());
-		for(String line : parser.commentLines)
-			System.out.println(line);
-	}
-
-	public static void main(String[] args) throws Exception {
-		if(args.length == 0 || args.length > 2) {
-			System.out.println("Usage: [-d|-debug] <source-file-name>");
-			System.exit(1);
-		}
-
-		if(args[0].equals("-d") || args[0].equals("-debug")) {
-			initDebugModule();
-		}
-
-		SourceCodeParser parser = new SourceCodeParser(args[DEBUG?1:0]);
-		parser.parse();
-
-		display(parser);
+	private void printLines(final File file) {
+        if(fileList.size() > 1)
+            sourceStream.printf("\n\n-----[File: Name=%s, Path=%s]-----\n", file.getName(), file.getAbsolutePath());
+        
+		sourceStream.printf("[Code lines (%d)]\n", codeLines.size());
+		for(String line: codeLines)
+			sourceStream.println(line);
+        
+		commentStream.printf("\n\n[Comment lines (%d)]\n", commentLines.size());
+		for(String line: commentLines)
+			commentStream.println(line);
 	}
 }

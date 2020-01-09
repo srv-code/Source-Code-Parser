@@ -1,0 +1,2 @@
+alias b='javac -d out src/tester/Tester.java src/tester/StandardExitCodes.java src/util/text/parser/src/SourceCodeParser.java'
+alias r='java -cp out tester.Tester'
